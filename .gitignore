@@ -1,0 +1,87 @@
+# ------------------------------------------------------------------------------ #
+# Java defaults (https://github.com/github/gitignore/blob/master/Java.gitignore) #
+# ------------------------------------------------------------------------------ #
+*.class
+
+# Package Files #
+*.jar
+*.war
+*.ear
+
+# ------------------------------------------------------------------------------------------- #
+# Eclipse-specific (https://github.com/github/gitignore/blob/master/Global/Eclipse.gitignore) #
+# ------------------------------------------------------------------------------------------- #
+*.pydevproject
+.metadata
+bin/**
+tmp/**
+tmp/**/*
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.project
+.classpath
+
+# External tool builders
+.externalToolBuilders/
+
+# Locally stored "Eclipse launch configurations"
+*.launch
+
+# CDT-specific
+.cproject
+
+# PDT-specific
+.buildpath
+
+# --------------- #
+# Studio-specific #
+# --------------- #
+target/
+.mule/
+.DS_Store
+velocity.log
+
+# ---------------- #
+# ACB defaults     #
+# ---------------- #
+.tooling-project
+
+# ------------------------------------------------------------------------------ #
+# Node.js / Scraper Specifics                                                   #
+# ------------------------------------------------------------------------------ #
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+
+# ------------------------------------------------------------------------------ #
+# Authentication / Session Data (Okta Tokens)                                   #
+# ------------------------------------------------------------------------------ #
+# These prevent your active login session from being uploaded to GitHub
+cookies.json
+session.json
+token.json
+*.token
+.auth_state/
+storageState.json
+
+# ------------------------------------------------------------------------------ #
+# Scraper Output / Test Artifacts                                                #
+# ------------------------------------------------------------------------------ #
+*.csv
+test-runs/
+scraper-bot/dist/
+scraper-bot/build/
+
+# ------------------------------------------------------------------------------ #
+# Sensitive Data / Local Config                                                 #
+# ------------------------------------------------------------------------------ #
+# Exclude the actual config file containing your Monday Token
+src/main/resources/config.yaml
+monday_actual_items.json

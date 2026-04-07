@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<http:listener-config name="HTTP_Listener_config">
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+
+	<http:request-config name="Monday_HTTP_Request_configuration">
+		<http:request-connection protocol="HTTPS" host="api.monday.com" />
+	</http:request-config>
+
+	<flow name="rtlm-monday-syncFlow">
+		<http:listener config-ref="HTTP_Listener_config" path="/sync"/>
+		
+		<async doc:name="Async Background">
+			<ee:transform doc:name="Filter &amp; Map Data">
+				<ee:message >
+					<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var rawData = read(payload.csvContent, "application/csv", {"header": true, "ignoreEmptyLine": true})
+var filteredData = rawData filter (lower($.Headline) != "infomercial")
+
+fun mapCallSign(cs) = cs match {
+    case s if (s startsWith "BTNP") -> "B1G+"
+    case "FOXD" -> "Fox-Digital"
+    case "FSCPL" -> "FSP"
+    case "FBCS" -> "FOX"
+    case "FS1D" -> "FS1-Digital"
+    else -> cs
+}
+---
+{
+    initialCount: sizeOf(rawData) default 0,
+    filteredCount: sizeOf(filteredData) default 0,
+    items: filteredData map (row, index) -> {
+        "name": row.Headline default "Unknown",
+        "values": {
+            "date4": { 
+                "date": row."Start Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "yyyy-MM-dd"}, 
+                "time": row."Start Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "HH:mm:ss"} 
+            },
+            "date_mkzc3q4b": { 
+                "date": row."End Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "yyyy-MM-dd"}, 
+                "time": row."End Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "HH:mm:ss"} 
+            },
+            "dropdown": { "labels": [ mapCallSign(row."Call Sign" default "FS1") ] },
+            "text4": row."TMS ID" default "",
+            "text__1": row."Foxipedia ID" default ""
+        }
+    }
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+
+            <set-variable value="#[payload.initialCount]" variableName="initialCount" doc:name="Set Initial Count"/>
+            <set-variable value="#[payload.filteredCount]" variableName="totalItems" doc:name="Set Total Count"/>
+            
+            <logger level="INFO" message="#[%dw 2.0 output text/plain --- &quot;📊 INITIAL ROWS: $(vars.initialCount default '0') | ✂️ AFTER FILTER: $(vars.totalItems default '0')&quot;]"/>
+
+			<foreach doc:name="Sequential Processor" collection="#[payload.items]">
+				<set-variable value="#[payload.name]" variableName="itemName" doc:name="Store Item Name"/>
+				<until-successful maxRetries="5" millisBetweenRetries="2000">
+					<http:request method="POST" config-ref="Monday_HTTP_Request_configuration" path="/v2" responseTimeout="30000">
+						<http:body ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+    query: "mutation (\$name: String!, \$values: JSON!) { create_item (board_id: 18404158031, item_name: \$name, column_values: \$values) { id } }",
+    variables: {
+        name: payload.name,
+        values: write(payload.values, "application/json")
+    }
+}]]]></http:body>
+						<http:headers ><![CDATA[#[{
+	"Authorization": "${monday.api.key}",
+	"Content-Type": "application/json",
+	"API-Version": "2023-10"
+}]]]></http:headers>
+					</http:request>
+				</until-successful>
+
+                <choice doc:name="Audit Logs">
+                    <when expression="#[payload.errors != null]">
+                        <logger level="ERROR" message="#[%dw 2.0 output text/plain --- &quot;❌ FAILED: $(vars.itemName default 'Unknown') - $(payload.errors[0].message default 'Error')&quot;]"/>
+                    </when>
+                    <otherwise>
+                        <logger level="INFO" message="#[%dw 2.0 output text/plain --- &quot;✅ SUCCESS ($(vars.counter default '0')/$(vars.totalItems default '0')): $(vars.itemName default 'Unknown')&quot;]"/>
+                    </otherwise>
+                </choice>
+			</foreach>
+
+			<logger level="INFO" message="#[%dw 2.0 output text/plain --- &quot;🏁 Sync Finished! Total Items Processed: $(vars.totalItems default '0')&quot;]"/>
+		</async>
+		<set-payload value='{"status": "success"}' mimeType="application/json"/>
+	</flow>
+</mule>

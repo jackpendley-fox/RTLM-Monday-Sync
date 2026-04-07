@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
+    <title>RTLM → Monday Sync</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <header class="card card--header card--hero">
+        <div class="header-row">
+          <div class="header-text">
+            <div class="brand-row">
+              <span class="brand-badge" title="Internal Fox tooling">FOX Media Cloud</span>
+            </div>
+            <h1>RTLM → Monday Sync</h1>
+            <p class="subtitle">Run the scraper and sync to Monday.com via MuleSoft (CloudHub).</p>
+          </div>
+          <div class="header-actions">
+            <label class="sound-toggle" title="Short chime when a sync completes successfully">
+              <input type="checkbox" id="sound-toggle" />
+              <span>Success sound</span>
+            </label>
+            <div class="status-wrap">
+              <span class="status-pill" id="status-badge" aria-live="polite">Idle</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="card card--guide" aria-labelledby="guide-title">
+        <h2 id="guide-title" class="guide-title">How to use this app</h2>
+        <p class="guide-lead">
+          First time? Follow these steps in order. After you’ve signed in once, you usually only need
+          <strong>Run sync</strong>.
+        </p>
+        <ol class="guide-steps">
+          <li>
+            <span class="guide-step-title">Sign in to RTLM</span>
+            <span class="guide-step-body">
+              Click <strong>Log in to RTLM</strong>. A browser window opens — sign in with your Fox
+              Okta account (including MFA if prompted).
+            </span>
+          </li>
+          <li>
+            <span class="guide-step-title">Wait until you’re really logged in</span>
+            <span class="guide-step-body">
+              Stay in the browser until you can see the RTLM listings (or your usual dashboard). If
+              something looks wrong, finish the login flow before moving on.
+            </span>
+          </li>
+          <li>
+            <span class="guide-step-title">Come back to this window</span>
+            <span class="guide-step-body">
+              Switch back to <strong>this app</strong>. Don’t close the browser yet if it’s still
+              loading — but once you’re in, return here for the next step.
+            </span>
+          </li>
+          <li>
+            <span class="guide-step-title">Save your session</span>
+            <span class="guide-step-body">
+              Click <strong>I’m logged in — save session</strong>. That stores your login so the next
+              run doesn’t ask you to sign in again (until your session expires).
+            </span>
+          </li>
+          <li>
+            <span class="guide-step-title">Run the sync</span>
+            <span class="guide-step-body">
+              Click <strong>Run sync</strong>. The app will open RTLM, collect today’s sporting
+              listings, and send them to Monday.com through MuleSoft. Watch the <strong>Output</strong>
+              section below for progress. When it finishes, you’ll see a green success message and
+              (if enabled) a short chime.
+            </span>
+          </li>
+        </ol>
+        <div class="guide-notes">
+          <p class="guide-note" id="guide-shortcuts-line">
+            <strong>Need to stop?</strong> Use <strong>Stop</strong> if a run is stuck. Shortcuts:
+            <span class="guide-kbd-wrap"><kbd class="guide-kbd">⌘</kbd><kbd class="guide-kbd">↵</kbd></span>
+            runs sync and
+            <span class="guide-kbd-wrap"><kbd class="guide-kbd">⌘</kbd><kbd class="guide-kbd">.</kbd></span>
+            stops.
+          </p>
+          <p class="guide-note">
+            <strong>Network:</strong> RTLM must be reachable (often while on VPN). If pages don’t load,
+            check VPN and try again.
+          </p>
+          <p class="guide-note guide-note--muted">
+            Advanced: you can also run the scraper from a terminal with
+            <code>npm run scrape</code> in the <code>scraper-bot</code> folder — this app does the same
+            thing with buttons.
+          </p>
+        </div>
+      </section>
+
+      <div id="result-banner" class="result-banner" role="status" tabindex="-1" hidden></div>
+
+      <section class="card card--summary" id="last-run-card" hidden>
+        <div class="section-head">
+          <span class="section-title">Last successful sync</span>
+        </div>
+        <div class="summary-grid" id="last-run-body"></div>
+      </section>
+
+      <section class="card" aria-labelledby="endpoint-label">
+        <div class="section-head">
+          <span id="endpoint-label" class="section-title">MuleSoft endpoint</span>
+          <code class="section-tag">MULESOFT_URL</code>
+        </div>
+        <p id="mule-url" class="endpoint-box"></p>
+        <p class="hint hint--compact">Override in <code>.env</code> (see <code>.env.example</code> in <code>scraper-bot/</code>).</p>
+      </section>
+
+      <section class="card card--actions" aria-label="Actions">
+        <p class="kbd-hint" id="kbd-hint">
+          Shortcuts: <kbd>⌘</kbd><kbd>↵</kbd> Run sync · <kbd>⌘</kbd><kbd>.</kbd> Stop
+        </p>
+        <div class="btn-grid">
+          <button type="button" id="btn-auth" class="btn btn--primary">Log in to RTLM</button>
+          <button type="button" id="btn-auth-enter" class="btn btn--secondary" disabled>
+            I’m logged in — save session
+          </button>
+          <button type="button" id="btn-scrape" class="btn btn--primary">Run sync</button>
+          <button type="button" id="btn-stop" class="btn btn--danger" disabled>Stop</button>
+        </div>
+        <p class="hint hint--steps">
+          Quick reminder: <strong>Log in</strong> → <strong>Save session</strong> → <strong>Run sync</strong>.
+          See <strong>How to use this app</strong> above for the full walkthrough.
+        </p>
+      </section>
+
+      <section class="card card--log" aria-labelledby="log-label">
+        <div class="log-toolbar">
+          <span id="log-label" class="section-title">Output</span>
+          <span class="log-chrome" aria-hidden="true"></span>
+        </div>
+        <div class="log-wrap">
+          <div id="log-empty" class="log-empty">
+            <strong>No output yet.</strong> After you click <strong>Log in to RTLM</strong> or
+            <strong>Run sync</strong>, lines will appear here so you can follow what’s happening.
+            If this is your first time, start with the <strong>How to use this app</strong> steps at the top.
+          </div>
+          <pre id="log" class="log" aria-live="polite"></pre>
+        </div>
+      </section>
+    </div>
+
+    <div id="about-overlay" class="about-overlay" hidden>
+      <div class="about-backdrop" data-close-about></div>
+      <div class="about-panel card" role="dialog" aria-labelledby="about-title" aria-modal="true">
+        <h2 id="about-title" class="about-title">RTLM → Monday Sync</h2>
+        <p class="about-meta" id="about-version"></p>
+        <p class="about-desc" id="about-desc"></p>
+        <p class="about-foot">Internal tooling · Session data stays on this device.</p>
+        <button type="button" class="btn btn--primary about-close" id="about-close">Close</button>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

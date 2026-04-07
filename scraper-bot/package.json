@@ -1,0 +1,63 @@
+{
+  "name": "scraper-bot",
+  "version": "1.0.0",
+  "description": "RTLM listings to Monday.com via MuleSoft — desktop helper",
+  "author": "Fox Media Cloud",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "auth": "node auth.js",
+    "scrape": "node scraper.js",
+    "gui": "electron .",
+    "scrape:headless": "HEADLESS=true node scraper.js",
+    "scrape:only": "SKIP_SYNC=true node scraper.js",
+    "test:consistency": "HEADLESS=true node test-consistency.js",
+    "audit": "node audit.js",
+    "prepare:playwright": "node scripts/prepare-playwright-browsers.js",
+    "dist:mac": "npm run prepare:playwright && electron-builder --mac"
+  },
+  "dependencies": {
+    "axios": "^1.13.6",
+    "dotenv": "^16.4.7",
+    "googleapis": "^171.4.0",
+    "playwright": "^1.58.2"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.fox.rtlmMondaySync",
+    "productName": "RTLM Monday Sync",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "**/*",
+      "!dist/**/*",
+      "!build/**/*",
+      "!*.md"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/playwright/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/playwright-browsers",
+        "to": "playwright-browsers"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    }
+  }
+}
