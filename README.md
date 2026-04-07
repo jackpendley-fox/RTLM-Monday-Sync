@@ -4,7 +4,7 @@ Automated pipeline for Fox Media Cloud that replaces a manual copy-paste workflo
 
 ## Demo
 
-<video src="demo.mov" controls width="100%"></video>
+<video src="demo.mp4" controls width="100%"></video>
 
 ## System Architecture
 
