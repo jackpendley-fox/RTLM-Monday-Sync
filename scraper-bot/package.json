@@ -17,7 +17,6 @@
     "update:schedule": "HEADLESS=true node updater.js --schedule",
     "test": "node tests/run-all.js",
     "test:quick": "node tests/run-all.js --skip-e2e",
-    "test:smoke": "node -e \"require('./tests/harness');require('./tests/smoke.test');require('./tests/harness').report();process.exit(require('./tests/harness').exitCode())\"",
     "audit": "node audit.js",
     "prepare:playwright": "node scripts/prepare-playwright-browsers.js",
     "dist:mac": "npm run prepare:playwright && electron-builder --mac"
