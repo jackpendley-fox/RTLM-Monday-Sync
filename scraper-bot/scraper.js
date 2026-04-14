@@ -8,25 +8,38 @@ const axios = require('axios');
 // ── Configuration ──
 const RTLM_URL = 'https://mam.mediacloud.fox/tools/rtlm/listings';
 const MULESOFT_URL =
-  process.env.MULESOFT_URL || 'https://<your-cloudhub-app>.cloudhub.io/sync';
+  process.env.MULESOFT_URL || 'https://rtlm-monday-sync-uzulc.5sc6y6-2.usa-e2.cloudhub.io/sync';
 const SCRAPE_TIMEOUT_MS = 5 * 60 * 1000;
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 const NAV_TIMEOUT_MS = 60000;
 const SSO_SETTLE_MS = 3000;
 
-async function runScraper() {
+async function runScraper(options = {}) {
   const storagePath = path.join(__dirname, 'storageState.json');
   if (!fs.existsSync(storagePath)) {
     console.error("ERROR: storageState.json not found. Run 'npm run auth' and log in first.");
-    return false;
+    return { success: false, error: 'storageState.json not found', headers: [], rows: [] };
   }
 
-  const browser = await chromium.launch({ headless: process.env.HEADLESS === 'true' });
-  const context = await browser.newContext({ storageState: storagePath });
-  const page = await context.newPage();
-  page.on('dialog', d => d.dismiss());
+  const headless = options.headless ?? (process.env.HEADLESS === 'true');
+  const skipSync = options.skipSync ?? (process.env.SKIP_SYNC === 'true');
+  const skipCsv = options.skipCsv ?? false;
+  const verbose = options.verbose ?? false;
+  const authTimeoutMs = options.authTimeoutMs ?? AUTH_TIMEOUT_MS;
 
+  let browser;
   try {
+    browser = await chromium.launch({ headless });
+    const context = await browser.newContext({ storageState: storagePath });
+    const page = await context.newPage();
+    page.on('dialog', d => d.dismiss());
+    if (verbose) {
+      const verboseFilter = /\[CALLSIGN\]|App ready:|Column setup:|Callsign filters:|More Filters:|Table settle:|All filters applied|^\s+Page \d+:/;
+      page.on('console', msg => {
+        const text = msg.text();
+        if (text && verboseFilter.test(text)) console.log(`[BROWSER] ${text}`);
+      });
+    }
     // ── Navigate to RTLM (with SSO redirect handling) ──
     console.log(`[NAV] Navigating to: ${RTLM_URL}`);
     await page.goto(RTLM_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
@@ -44,7 +57,7 @@ async function runScraper() {
         console.log('[NAV] Waiting for redirect to complete...');
       }
 
-      await page.waitForURL(/mam\.mediacloud\.fox/, { timeout: AUTH_TIMEOUT_MS });
+      await page.waitForURL(/mam\.mediacloud\.fox/, { timeout: authTimeoutMs });
       console.log(`[NAV] Back on MAM domain. URL: ${page.url()}`);
       await page.waitForLoadState('domcontentloaded').catch(() => {});
       await page.waitForTimeout(2000);
@@ -248,7 +261,9 @@ async function runScraper() {
         );
         if (!input) return false;
 
+        const autocompleteRoot = input.closest('.MuiAutocomplete-root');
         const remaining = new Set(callsigns.map(cs => cs.toUpperCase()));
+        const notFound = [];
         input.focus();
         input.click();
         setNativeValue(input, '');
@@ -269,9 +284,17 @@ async function runScraper() {
           }
         }
 
+        const fastPassCount = callsigns.length - remaining.size;
+        if (remaining.size > 0) {
+          console.log(`[CALLSIGN] ${fastPassCount} selected in fast pass, ${remaining.size} remaining for individual search`);
+        }
+
+        let individualFound = 0;
         for (const cs of remaining) {
           input.focus();
           input.click();
+          setNativeValue(input, '');
+          await delay(100);
           setNativeValue(input, cs);
           let match = null;
           for (let i = 0; i < 30; i++) {
@@ -280,7 +303,13 @@ async function runScraper() {
               .find(o => o.textContent.trim().toUpperCase() === cs);
             if (match) break;
           }
-          if (match) { match.click(); await delay(100); }
+          if (match) {
+            match.click();
+            individualFound++;
+            await delay(100);
+          } else {
+            notFound.push(cs);
+          }
         }
 
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
@@ -291,6 +320,13 @@ async function runScraper() {
         header.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
         header.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
         await delay(200);
+
+        const totalApplied = fastPassCount + individualFound;
+        console.log(`[CALLSIGN] Filter result: ${totalApplied} / ${callsigns.length} applied (${fastPassCount} fast pass + ${individualFound} individual search)`);
+        if (notFound.length > 0) {
+          console.log(`[CALLSIGN] Not found in dropdown: ${notFound.join(', ')}`);
+        }
+
         return true;
       };
 
@@ -370,36 +406,41 @@ async function runScraper() {
       // ── Paginated Scraping ──
       const allRows = [];
       const seen = new Set();
-      let globalRowNum = 1;
       let pageNum = 0;
+      let totalTableRows = 0, skippedNotSporting = 0, skippedPastCutoff = 0, skippedDuplicate = 0;
 
       while (true) {
         pageNum++;
-        let rowsOnPage = 0, pastCutoff = 0;
+        let rowsOnPage = 0, pastCutoff = 0, notSportingOnPage = 0, dupesOnPage = 0;
 
         for (const row of document.querySelectorAll(SEL.ROW)) {
           if (row.querySelector('th') || row.getAttribute('role') === 'columnheader') continue;
           const cells = Array.from(row.querySelectorAll(SEL.CELL));
           if (cells.length === 0) continue;
-          if (!cells[sportColIdx]?.querySelector('[data-testid="CheckIcon"]')) continue;
+          totalTableRows++;
+
+          if (!cells[sportColIdx]?.querySelector('[data-testid="CheckIcon"]')) {
+            skippedNotSporting++;
+            notSportingOnPage++;
+            continue;
+          }
 
           const rowData = cells.map(c => c.innerText.replace(/\n/g, ' ').trim());
           const startTime = parseStartTime(rowData[startTimeIdx]);
-          if (startTime && startTime > cutoffDate) { pastCutoff++; continue; }
+          if (startTime && startTime > cutoffDate) { pastCutoff++; skippedPastCutoff++; continue; }
 
           const filtered = rowData.filter((_, i) => !excludeIdxs.has(i));
           filtered[filteredSportIdx] = 'TRUE';
 
           const dedupeKey = filtered.join('|');
-          if (seen.has(dedupeKey)) continue;
+          if (seen.has(dedupeKey)) { skippedDuplicate++; dupesOnPage++; continue; }
           seen.add(dedupeKey);
 
-          filtered.unshift(globalRowNum++);
-          allRows.push(filtered.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+          allRows.push(filtered);
           rowsOnPage++;
         }
 
-        console.log(`  Page ${pageNum}: ${rowsOnPage} events.`);
+        console.log(`  Page ${pageNum}: ${rowsOnPage} captured, ${notSportingOnPage} not sporting, ${pastCutoff} past cutoff, ${dupesOnPage} dupes`);
 
         if (pastCutoff > 0 && rowsOnPage === 0) {
           console.log(`  All rows past ${DAYS_AHEAD}-day cutoff. Stopping.`);
@@ -417,7 +458,10 @@ async function runScraper() {
         await waitForPageChange(fingerprint);
       }
 
-      return { headers: ['Row #', ...filteredHeaders], data: allRows };
+      return { headers: filteredHeaders, rows: allRows, diagnostics: {
+        totalTableRows, skippedNotSporting, skippedPastCutoff, skippedDuplicate,
+        captured: allRows.length, pages: pageNum,
+      } };
     });
 
     const results = await Promise.race([
@@ -428,17 +472,31 @@ async function runScraper() {
     ]);
 
     if (results.error) throw new Error(results.error);
-    if (!results.data?.length) throw new Error('Scrape returned 0 rows.');
+    if (!results.rows?.length) throw new Error('Scrape returned 0 rows.');
+    console.log(`[SCRAPE] ${results.rows.length} events scraped.`);
+    if (verbose && results.diagnostics) {
+      const d = results.diagnostics;
+      console.log(`[SCRAPE] Diagnostics: ${d.totalTableRows} table rows across ${d.pages} pages`);
+      console.log(`[SCRAPE]   Skipped (not sporting event): ${d.skippedNotSporting}`);
+      console.log(`[SCRAPE]   Skipped (past cutoff): ${d.skippedPastCutoff}`);
+      console.log(`[SCRAPE]   Skipped (duplicate): ${d.skippedDuplicate}`);
+      console.log(`[SCRAPE]   Captured: ${d.captured}`);
+    }
 
     // ── Save CSV Output ──
-    const csvContent = '\ufeff' + [results.headers.join(','), ...results.data].join('\n');
+    const csvRows = results.rows.map((row, i) =>
+      [i + 1, ...row].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+    );
+    const csvContent = '\ufeff' + [['Row #', ...results.headers].join(','), ...csvRows].join('\n');
     const fileName = process.env.SCRAPER_OUTPUT_PATH
       || path.join(__dirname, `rtlm_upload_${new Date().toISOString().split('T')[0]}.csv`);
-    fs.writeFileSync(fileName, csvContent);
-    console.log(`[SCRAPE] ${results.data.length} events saved to ${fileName}`);
+    if (!skipCsv) {
+      fs.writeFileSync(fileName, csvContent);
+      console.log(`[SCRAPE] ${results.rows.length} events saved to ${fileName}`);
+    }
 
     // ── Sync to MuleSoft ──
-    if (process.env.SKIP_SYNC !== 'true') {
+    if (!skipSync) {
       console.log(`[SYNC] Sending data to MuleSoft at ${MULESOFT_URL}...`);
       try {
         const response = await axios.post(MULESOFT_URL, {
@@ -458,14 +516,18 @@ async function runScraper() {
       console.log('[SYNC] Skipped (SKIP_SYNC=true)');
     }
 
-    return true;
+    return { success: true, headers: results.headers, rows: results.rows, diagnostics: results.diagnostics };
 
   } catch (err) {
     console.error('ERROR:', err.message);
-    return false;
+    return { success: false, error: err.message, headers: [], rows: [] };
   } finally {
-    try { await browser.close(); } catch {}
+    try { if (browser) await browser.close(); } catch {}
   }
 }
 
-runScraper().then(ok => process.exit(ok ? 0 : 1));
+module.exports = { runScraper };
+
+if (require.main === module) {
+  runScraper().then(result => process.exit(result.success ? 0 : 1));
+}

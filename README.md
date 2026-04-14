@@ -70,6 +70,20 @@ rtlm-monday-sync/
 │   ├── scripts/
 │   │   └── prepare-playwright-browsers.js  # Bundle Chromium for packaged app
 │   ├── .env.example           # Copy to .env to override MuleSoft URL
+│   ├── updater.js             # Automated hourly RTLM→Monday sync (compare + create/update)
+│   ├── monday-client.js       # Monday.com GraphQL API client
+│   ├── tests/                 # Modular test suite (106 tests, 8 categories)
+│   │   ├── run-all.js         #   Test runner entry point
+│   │   ├── harness.js         #   Shared test harness (pass/fail/skip reporting)
+│   │   ├── fixtures.js        #   Shared fixtures and data factories
+│   │   ├── smoke.test.js      #   Module loading and dependency checks
+│   │   ├── unit.test.js       #   Pure-function correctness
+│   │   ├── functional.test.js #   Business-logic scenarios
+│   │   ├── integration.test.js#   Module wiring and cross-module contracts
+│   │   ├── acceptance.test.js #   Requirements verification
+│   │   ├── performance.test.js#   Throughput and latency thresholds
+│   │   ├── regression.test.js #   Guards against previously-fixed bugs
+│   │   └── e2e.test.js        #   Live Monday.com API calls
 │   ├── test-consistency.js    # Multi-run consistency test
 │   ├── audit.js               # Monday.com item count verification
 │   ├── package.json           # Node dependencies and npm scripts
@@ -91,7 +105,10 @@ rtlm-monday-sync/
 |---|---|
 | `scraper-bot/auth.js` | **Run first.** Opens a browser for Okta SSO login and saves session cookies to `storageState.json`. |
 | `scraper-bot/scraper.js` | Scrapes RTLM listings with SSO handling, popup dismissal, adaptive polling, deduplication, and date filtering. Saves CSV and POSTs to MuleSoft. |
+| `scraper-bot/updater.js` | **Automated sync.** Scrapes RTLM, fetches current Monday.com items, compares them, creates new items and updates changed ones. Runs once or on an hourly cron schedule. |
+| `scraper-bot/monday-client.js` | Monday.com GraphQL API client. Handles pagination, retries, rate limiting, call-sign mapping, infomercial filtering, and item archival. |
 | `scraper-bot/electron/` | Electron desktop GUI — buttons for auth, sync, and stop; live log output; optional success sound; dark/light theme. Can be packaged as a standalone macOS `.app`. |
+| `scraper-bot/tests/` | Modular test suite for the updater pipeline: 106 tests across 8 categories (smoke, unit, functional, integration, acceptance, performance, regression, E2E). Each category lives in its own file with shared harness and fixtures. |
 | `scraper-bot/test-consistency.js` | Runs `scraper.js` N times (default 10), compares SHA-256 hashes to verify identical output across runs. |
 | `scraper-bot/audit.js` | Fetches all items from the Monday.com board and reports the total count. |
 | `src/main/mule/rtlm-monday-sync.xml` | MuleSoft flow that receives CSV from the scraper, filters infomercials, maps Call Signs to approved labels, and creates items on Monday.com. |
@@ -168,6 +185,62 @@ npm run test:consistency
 ```
 
 Runs 10 consecutive headless scrapes (with sync disabled), saves each to `test-runs/run-N.csv`, and compares SHA-256 hashes to verify all runs produce identical output. Reports timing, row counts, and diffs for any inconsistencies.
+
+### Automated update (compare RTLM vs Monday, sync differences)
+
+Run once:
+
+```bash
+npm run update
+```
+
+Run on an hourly schedule (long-running process):
+
+```bash
+npm run update:schedule
+```
+
+The updater performs a full scrape of RTLM, fetches all current items from the Monday.com board, and compares them using a composite key of **TMS ID + mapped Call Sign**. It then:
+
+- **Creates** items that exist in RTLM but not yet on Monday.com
+- **Updates** items where the headline, start time, end time, media source, or Foxipedia ID has changed in RTLM
+- **Archives** Monday.com items whose start time is within the scrape window (next 7 days) but no longer appear in RTLM — removing stale or cancelled listings
+- Leaves unchanged items and past items alone
+
+With `--schedule`, it runs immediately and then repeats every hour at `:00`. If a run is still in progress when the next hour fires, that tick is skipped.
+
+**Session requirement:** the updater runs headless and reuses `storageState.json`. If the session has expired, it waits up to 60 seconds for a redirect (vs 5 minutes for the interactive scraper) and then aborts gracefully. Re-run `npm run auth` to refresh the session.
+
+### Test the updater
+
+Full test suite (includes live Monday.com API calls):
+
+```bash
+npm run test
+```
+
+Quick tests only (no live API):
+
+```bash
+npm run test:quick
+```
+
+Smoke tests only (fastest — module loading checks):
+
+```bash
+npm run test:smoke
+```
+
+Individual suites can also be run directly:
+
+```bash
+node tests/smoke.test.js
+node tests/unit.test.js
+node tests/functional.test.js
+# etc.
+```
+
+The suite is organized into `scraper-bot/tests/` with 106 scenarios across 8 categories: smoke, unit, functional, integration, acceptance, performance, regression, and E2E (live API). Shared harness and fixtures live in `harness.js` and `fixtures.js`.
 
 ### Audit Monday.com
 
@@ -443,27 +516,9 @@ MuleSoft processing:
 | Data accuracy | Zero missed or duplicate events | ✅ Achieved |
 | Desktop GUI | One-click sync for non-technical users | ✅ Shipped |
 | macOS packaging | Standalone `.app` with bundled Chromium | ✅ Shipped |
-| API efficiency | Minimize Monday.com API calls per sync | 🔜 Pending (delta sync) |
-| Automated cadence | Hourly unattended runs | 🔜 Pending (scheduler) |
-
-## Roadmap
-
-### Incremental Update Logic (Next)
-
-Current approach does a full scrape and creates all items on each run. The next iteration will:
-
-- Query the Monday.com board state before syncing
-- Compare against the fresh scrape to detect new, changed, and removed listings
-- Push only deltas (create / update / archive) instead of recreating everything
-- Use `change_column_value` for updates and `archive_item` for removals
-
-This is the highest-priority improvement -- it will drop Monday.com API calls from ~1600 per run to a handful in steady state, keeping us well within rate limits and reducing sync time.
-
-### Automated Scheduling
-
-- Cron job (or cloud scheduler) running the pipeline hourly in headless mode
-- Health-check endpoint for uptime monitoring
-- Slack or email alerts on sync failure or data anomaly (e.g., row count drops >20% between runs)
+| API efficiency | Minimize Monday.com API calls per sync | ✅ Achieved (delta sync via `updater.js`) |
+| Automated cadence | Hourly unattended runs | ✅ Achieved (`npm run update:schedule`) |
+| Test coverage | Comprehensive updater pipeline tests | ✅ Shipped (106 tests, 8 categories) |
 
 ## Troubleshooting
 

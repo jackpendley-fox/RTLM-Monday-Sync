@@ -26,30 +26,57 @@ var filteredData = rawData filter (lower($.Headline) != "infomercial")
 
 fun mapCallSign(cs) = cs match {
     case s if (s startsWith "BTNP") -> "B1G+"
-    case "FOXD" -> "Fox-Digital"
+    case "FOXD" -> "FOXDEP"
     case "FSCPL" -> "FSP"
     case "FBCS" -> "FOX"
     case "FS1D" -> "FS1-Digital"
     else -> cs
 }
+
+fun mapMediaSource(ms) = do {
+    var trimmed = trim(ms) default ""
+    ---
+    if (trimmed matches /^(?:DTC|RTLM)\s*-\s*(BTNP\d+|TX\d+)$/)
+        (trimmed scan /^(?:DTC|RTLM)\s*-\s*(.+)$/)[0][1]
+    else trimmed
+}
+
+fun etOffsetHours(m) =
+    if (m >= 4 and m <= 10) 4 else 5
+
+fun toUtc(dtStr) = do {
+    var local = dtStr as LocalDateTime {format: "M/d/yy H:mm"}
+    var offset = etOffsetHours(local.month as Number)
+    var utc = local + ("PT$(offset)H" as Period)
+    ---
+    utc
+}
 ---
 {
     initialCount: sizeOf(rawData) default 0,
     filteredCount: sizeOf(filteredData) default 0,
-    items: filteredData map (row, index) -> {
-        "name": row.Headline default "Unknown",
-        "values": {
-            "date4": { 
-                "date": row."Start Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "yyyy-MM-dd"}, 
-                "time": row."Start Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "HH:mm:ss"} 
-            },
-            "date_mkzc3q4b": { 
-                "date": row."End Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "yyyy-MM-dd"}, 
-                "time": row."End Time (ET)" as LocalDateTime {format: "M/d/yy H:mm"} as String {format: "HH:mm:ss"} 
-            },
-            "dropdown": { "labels": [ mapCallSign(row."Call Sign" default "FS1") ] },
-            "text4": row."TMS ID" default "",
-            "text__1": row."Foxipedia ID" default ""
+    items: filteredData map (row, index) -> do {
+        var startUtc = toUtc(row."Start Time (ET)")
+        var endUtc = toUtc(row."End Time (ET)")
+        var mediaSrc = mapMediaSource(row."Media Source" default "")
+        ---
+        {
+            "name": row.Headline default "Unknown",
+            "values": {
+                "date4": { 
+                    "date": startUtc as String {format: "yyyy-MM-dd"}, 
+                    "time": startUtc as String {format: "HH:mm:ss"} 
+                },
+                "date_mkzc3q4b": { 
+                    "date": endUtc as String {format: "yyyy-MM-dd"}, 
+                    "time": endUtc as String {format: "HH:mm:ss"} 
+                },
+                "dropdown": { "labels": [ mapCallSign(row."Call Sign" default "FS1") ] },
+                "text4": row."TMS ID" default "",
+                "text__1": row."Foxipedia ID" default ""
+            } ++ (if (mediaSrc != null and mediaSrc != "")
+                    { "dropdown9": { "labels": [mediaSrc] } }
+                  else {})
         }
     }
 }]]></ee:set-payload>
@@ -76,7 +103,7 @@ output application/json
     }
 }]]]></http:body>
 						<http:headers ><![CDATA[#[{
-	"Authorization": "${monday.api.key}",
+	"Authorization": "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjYzMzAxNTc3OCwiYWFpIjoxMSwidWlkIjoxMDA3MDU2NDUsImlhZCI6IjIwMjYtMDMtMTNUMjE6MTc6MTguMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjIxODY1MTQsInJnbiI6InVzZTEifQ.-785SPVTxelVwE6hjt_56XCDTkAiWXqj7vfrFWG218o",
 	"Content-Type": "application/json",
 	"API-Version": "2023-10"
 }]]]></http:headers>

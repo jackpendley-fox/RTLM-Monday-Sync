@@ -12,6 +12,12 @@
     "scrape:headless": "HEADLESS=true node scraper.js",
     "scrape:only": "SKIP_SYNC=true node scraper.js",
     "test:consistency": "HEADLESS=true node test-consistency.js",
+    "update": "HEADLESS=true node updater.js",
+    "update:verbose": "HEADLESS=true node updater.js --verbose",
+    "update:schedule": "HEADLESS=true node updater.js --schedule",
+    "test": "node tests/run-all.js",
+    "test:quick": "node tests/run-all.js --skip-e2e",
+    "test:smoke": "node -e \"require('./tests/harness');require('./tests/smoke.test');require('./tests/harness').report();process.exit(require('./tests/harness').exitCode())\"",
     "audit": "node audit.js",
     "prepare:playwright": "node scripts/prepare-playwright-browsers.js",
     "dist:mac": "npm run prepare:playwright && electron-builder --mac"
@@ -20,6 +26,7 @@
     "axios": "^1.13.6",
     "dotenv": "^16.4.7",
     "googleapis": "^171.4.0",
+    "node-cron": "^3.0.3",
     "playwright": "^1.58.2"
   },
   "devDependencies": {
@@ -37,7 +44,8 @@
       "**/*",
       "!dist/**/*",
       "!build/**/*",
-      "!*.md"
+      "!*.md",
+      "!tests/**/*"
     ],
     "asar": true,
     "asarUnpack": [
