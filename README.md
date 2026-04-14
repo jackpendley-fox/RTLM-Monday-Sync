@@ -72,18 +72,14 @@ rtlm-monday-sync/
 │   ├── .env.example           # Copy to .env to override MuleSoft URL
 │   ├── updater.js             # Automated hourly RTLM→Monday sync (compare + create/update)
 │   ├── monday-client.js       # Monday.com GraphQL API client
-│   ├── tests/                 # Modular test suite (106 tests, 8 categories)
+│   ├── tests/                 # Modular test suite (60 tests, 4 categories)
 │   │   ├── run-all.js         #   Test runner entry point
 │   │   ├── harness.js         #   Shared test harness (pass/fail/skip reporting)
 │   │   ├── fixtures.js        #   Shared fixtures and data factories
-│   │   ├── smoke.test.js      #   Module loading and dependency checks
-│   │   ├── unit.test.js       #   Pure-function correctness
-│   │   ├── functional.test.js #   Business-logic scenarios
-│   │   ├── integration.test.js#   Module wiring and cross-module contracts
-│   │   ├── acceptance.test.js #   Requirements verification
-│   │   ├── performance.test.js#   Throughput and latency thresholds
-│   │   ├── regression.test.js #   Guards against previously-fixed bugs
-│   │   └── e2e.test.js        #   Live Monday.com API calls
+│   │   ├── unit.test.js       #   Pure-function correctness (20 tests)
+│   │   ├── functional.test.js #   Business-logic scenarios (20 tests)
+│   │   ├── regression.test.js #   Guards against previously-fixed bugs (10 tests)
+│   │   └── e2e.test.js        #   Live Monday.com API calls (10 tests)
 │   ├── test-consistency.js    # Multi-run consistency test
 │   ├── audit.js               # Monday.com item count verification
 │   ├── package.json           # Node dependencies and npm scripts
@@ -108,7 +104,7 @@ rtlm-monday-sync/
 | `scraper-bot/updater.js` | **Automated sync.** Scrapes RTLM, fetches current Monday.com items, compares them, creates new items and updates changed ones. Runs once or on an hourly cron schedule. |
 | `scraper-bot/monday-client.js` | Monday.com GraphQL API client. Handles pagination, retries, rate limiting, call-sign mapping, infomercial filtering, and item archival. |
 | `scraper-bot/electron/` | Electron desktop GUI — buttons for auth, sync, and stop; live log output; optional success sound; dark/light theme. Can be packaged as a standalone macOS `.app`. |
-| `scraper-bot/tests/` | Modular test suite for the updater pipeline: 106 tests across 8 categories (smoke, unit, functional, integration, acceptance, performance, regression, E2E). Each category lives in its own file with shared harness and fixtures. |
+| `scraper-bot/tests/` | Modular test suite for the updater pipeline: 60 tests across 4 categories (unit, functional, regression, E2E). Each category lives in its own file with shared harness and fixtures. |
 | `scraper-bot/test-consistency.js` | Runs `scraper.js` N times (default 10), compares SHA-256 hashes to verify identical output across runs. |
 | `scraper-bot/audit.js` | Fetches all items from the Monday.com board and reports the total count. |
 | `src/main/mule/rtlm-monday-sync.xml` | MuleSoft flow that receives CSV from the scraper, filters infomercials, maps Call Signs to approved labels, and creates items on Monday.com. |
@@ -225,22 +221,16 @@ Quick tests only (no live API):
 npm run test:quick
 ```
 
-Smoke tests only (fastest — module loading checks):
-
-```bash
-npm run test:smoke
-```
-
 Individual suites can also be run directly:
 
 ```bash
-node tests/smoke.test.js
 node tests/unit.test.js
 node tests/functional.test.js
+node tests/regression.test.js
 # etc.
 ```
 
-The suite is organized into `scraper-bot/tests/` with 106 scenarios across 8 categories: smoke, unit, functional, integration, acceptance, performance, regression, and E2E (live API). Shared harness and fixtures live in `harness.js` and `fixtures.js`.
+The suite is organized into `scraper-bot/tests/` with 60 tests across 4 categories: unit, functional, regression, and E2E (live API). Shared harness and fixtures live in `harness.js` and `fixtures.js`.
 
 ### Audit Monday.com
 
@@ -518,7 +508,7 @@ MuleSoft processing:
 | macOS packaging | Standalone `.app` with bundled Chromium | ✅ Shipped |
 | API efficiency | Minimize Monday.com API calls per sync | ✅ Achieved (delta sync via `updater.js`) |
 | Automated cadence | Hourly unattended runs | ✅ Achieved (`npm run update:schedule`) |
-| Test coverage | Comprehensive updater pipeline tests | ✅ Shipped (106 tests, 8 categories) |
+| Test coverage | Comprehensive updater pipeline tests | ✅ Shipped (60 tests, 4 categories) |
 
 ## Troubleshooting
 
